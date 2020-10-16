@@ -1,108 +1,137 @@
-import React from 'react';
+import React, {useState, useEffect, useRef} from 'react';
+import {
+  View,
+  StyleSheet,
+  PermissionsAndroid,
+  Platform,
+  TouchableWithoutFeedback,
+  Keyboard,
+} from 'react-native';
+import Geolocation from '@react-native-community/geolocation';
+import axios from 'axios';
+import PolyLine from '@mapbox/polyline';
+import MapView, {Polyline, Marker} from 'react-native-maps';
 
-// import {
-//   SafeAreaView,
-//   StyleSheet,
-//   ScrollView,
-//   View,
-//   Text,
-//   StatusBar,
-// } from 'react-native';
-//
-// import {
-//   Header,
-//   LearnMoreLinks,
-//   Colors,
-//   DebugInstructions,
-//   ReloadInstructions,
-// } from 'react-native/Libraries/NewAppScreen';
-//
-// const App: () => React$Node = () => {
-//   return (
-//     <>
-//       <StatusBar barStyle="dark-content" />
-//       <SafeAreaView>
-//
-//         <ScrollView
-//           contentInsetAdjustmentBehavior="automatic"
-//           style={styles.scrollView}>
-//           <Header />
-//           {global.HermesInternal == null ? null : (
-//             <View style={styles.engine}>
-//               <Text style={styles.footer}>Engine: Hermes</Text>
-//             </View>
-//           )}
-//           <View style={styles.body}>
-//             <View style={styles.sectionContainer}>
-//               <Text style={styles.sectionTitle}>Step One</Text>
-//               <Text style={styles.sectionDescription}>
-//                 Edit <Text style={styles.highlight}>App.js</Text> to change this
-//                 screen and then come back to see your edits.
-//               </Text>
-//             </View>
-//             <View style={styles.sectionContainer}>
-//               <Text style={styles.sectionTitle}>See Your Changes</Text>
-//               <Text style={styles.sectionDescription}>
-//                 <ReloadInstructions />
-//               </Text>
-//             </View>
-//             <View style={styles.sectionContainer}>
-//               <Text style={styles.sectionTitle}>Debug</Text>
-//               <Text style={styles.sectionDescription}>
-//                 <DebugInstructions />
-//               </Text>
-//             </View>
-//             <View style={styles.sectionContainer}>
-//               <Text style={styles.sectionTitle}>Learn More</Text>
-//               <Text style={styles.sectionDescription}>
-//                 Read the docs to discover what to do next:
-//               </Text>
-//             </View>
-//             <LearnMoreLinks />
-//           </View>
-//         </ScrollView>
-//       </SafeAreaView>
-//     </>
-//   );
-// };
-//
-// const styles = StyleSheet.create({
-//   scrollView: {
-//     backgroundColor: Colors.lighter,
-//   },
-//   engine: {
-//     position: 'absolute',
-//     right: 0,
-//   },
-//   body: {
-//     backgroundColor: Colors.white,
-//   },
-//   sectionContainer: {
-//     marginTop: 32,
-//     paddingHorizontal: 24,
-//   },
-//   sectionTitle: {
-//     fontSize: 24,
-//     fontWeight: '600',
-//     color: Colors.black,
-//   },
-//   sectionDescription: {
-//     marginTop: 8,
-//     fontSize: 18,
-//     fontWeight: '400',
-//     color: Colors.dark,
-//   },
-//   highlight: {
-//     fontWeight: '700',
-//   },
-//   footer: {
-//     color: Colors.dark,
-//     fontSize: 12,
-//     fontWeight: '600',
-//     padding: 4,
-//     paddingRight: 12,
-//     textAlign: 'right',
-//   },
-// });
-//
-// export default App;
+// import MapScreen from './MapScreen';
+import PlaceInput from './components/PlaceInput';
+import {URL, APIKEY} from './constants/urlConstants';
+
+const App: () => React$Node = () => {
+  const [mapPermission, setMapPermission] = useState(false);
+  const [userLatitude, setUserLatitude] = useState(0);
+  const [userLongitude, setUserLongitude] = useState(0);
+  const [destinationCoords, setDestinationCoords] = useState([]);
+
+  const map = useRef();
+
+  const getUserPosition = () => {
+    setMapPermission(true);
+    Geolocation.watchPosition(
+      (pos) => {
+        setUserLatitude(pos.coords.latitude);
+        setUserLongitude(pos.coords.longitude);
+      },
+      (err) => console.warn(err),
+      {enableHighAccuracy: true},
+    );
+  };
+
+  const showDirectionsOnMap = async (placeId) => {
+    try {
+      const result = await axios.get(
+        `${URL}/directions/json?origin=${userLatitude},${userLongitude}&destination=place_id:${placeId}&key=${APIKEY}`,
+      );
+      const points = PolyLine.decode(
+        result.data.routes[0].overview_polyline.points,
+      );
+
+      const latLng = points.map((point) => ({
+        latitude: point[0],
+        longitude: point[1],
+      }));
+      setDestinationCoords(latLng);
+      console.log(map);
+      map.current.fitToCoordinates(latLng, {
+        edgePadding: {top: 20, bottom: 20, left: 20, right: 20},
+      });
+    } catch (e) {
+      console.log(e);
+    }
+  };
+
+  const requestFineLocation = async () => {
+    try {
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        );
+        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+          getUserPosition();
+        }
+      } else {
+        getUserPosition();
+      }
+    } catch (e) {
+      console.log(e);
+    }
+  };
+  useEffect(() => {
+    requestFineLocation();
+  }, []);
+
+  // useEffect(() => () => Geolocation.clearWatch(null));
+
+  let polyline =
+    destinationCoords.length > 0 ? (
+      <Polyline
+        coordinates={destinationCoords}
+        strokeWidth={5}
+        strokeColor="#D70F0F"
+      />
+    ) : null;
+
+  let marker =
+    destinationCoords.length > 0 ? (
+      <Marker coordinate={destinationCoords[destinationCoords.length - 1]} />
+    ) : null;
+
+  if (mapPermission) {
+    return (
+      <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
+        <View style={styles.container}>
+          <MapView
+            ref={map}
+            showsUserLocation
+            followsUserLocation
+            style={styles.map}
+            region={{
+              latitude: userLatitude,
+              longitude: userLongitude,
+              latitudeDelta: 0.015,
+              longitudeDelta: 0.0121,
+            }}>
+            {polilyne}
+            {marker}
+          </MapView>
+          <PlaceInput
+            latitude={userLatitude}
+            longitude={userLongitude}
+            showDirectionsOnMap={showDirectionsOnMap}
+          />
+        </View>
+      </TouchableWithoutFeedback>
+    );
+  }
+  return null;
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+});
+
+export default App;
